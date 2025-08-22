@@ -8,7 +8,7 @@ mod line;
 mod maze;
 mod player;
 
-use caster::cast_ray;
+use caster::{cast_ray, render3d};
 use framebuffer::Framebuffer;
 use line::line;
 use maze::{Maze, load_maze};
@@ -58,7 +58,7 @@ pub fn render_maze(framebuffer: &mut Framebuffer, maze: &Maze, block_size: usize
     for i in 0..num_rays {
         let current_ray = i as f32 / num_rays as f32;
         let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
-        cast_ray(framebuffer, maze, player, block_size, a);
+        cast_ray(framebuffer, maze, player, a, block_size, true);
     }
 }
 
@@ -128,6 +128,7 @@ fn main() {
             render_maze(&mut framebuffer, &maze, block_size, &player);
         } else {
             render_world(&mut framebuffer, &player);
+            render3d(&mut framebuffer, &player);
         }
 
         // 4. swap buffers
