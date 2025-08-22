@@ -2,156 +2,169 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-mod caster;
-mod framebuffer;
-mod line;
-mod maze;
-mod player;
-
-use caster::cast_ray;
-use framebuffer::Framebuffer;
-use line::line;
-use maze::{Maze, load_maze};
-use player::Player;
 use raylib::prelude::*;
-use std::thread;
-use std::time::Duration;
+use std::f32::consts::PI;
 
-fn draw_cell(framebuffer: &mut Framebuffer, xo: usize, yo: usize, block_size: usize, cell: char) {
-    if cell == ' ' {
-        return;
-    }
+mod framebuffer;
+mod sphere;
 
-    framebuffer.set_current_color(Color::RED);
+use framebuffer::Framebuffer;
+use sphere::Sphere;
 
-    for x in xo..xo + block_size {
-        for y in yo..yo + block_size {
-            framebuffer.set_pixel(x as u32, y as u32);
-        }
-    }
+pub struct Camera {
+    pub eye: Vector3,  // donde esta la camara en el mundo  7, 100, 10
+    pub center: Vector3,     // que mira la camara  7, 100, 5
+    pub up: Vector3,     // what is up? for the camera
+
+    pub forward: Vector3,
+    pub right: Vector3,
 }
 
-pub fn render_maze(framebuffer: &mut Framebuffer, maze: &Maze, block_size: usize, player: &Player) {
-    // Render 2D view
-    for (row_index, row) in maze.iter().enumerate() {
-        for (col_index, &cell) in row.iter().enumerate() {
-            let xo = col_index * block_size;
-            let yo = row_index * block_size;
+impl Camera {
+    pub fn new(eye: Vector3, center: Vector3, up: Vector3) -> Self {
+        let mut camera = Camera {
+            eye,
+            center,
+            up,
+            forward: Vector3::zero(),
+            right: Vector3::zero(),
+        };
 
-            draw_cell(framebuffer, xo, yo, block_size, cell);
-        }
+        camera.update_basis();
+        camera
+    }    pub fn update_basis(&mut self) {
+        self.forward = (self.center - self.eye).normalized();
+        self.right = self.forward.cross(self.up).normalized();
+        self.up = self.right.cross(self.forward);
     }
 
-    // Draw player and FOV rays
-    framebuffer.set_current_color(Color::GREEN);
-    for dx in -2..=2 {
-        for dy in -2..=2 {
-            framebuffer.set_pixel(
-                (player.pos.x + dx as f32) as u32,
-                (player.pos.y + dy as f32) as u32,
-            );
-        }
+    pub fn orbit(&mut self, yaw: f32, pitch: f32) {
+        let relative_pos = self.eye - self.center;
+
+        let radius = relative_pos.length();
+
+        let current_yaw = relative_pos.z.atan2(relative_pos.x);
+        let current_pitch = (relative_pos.y / radius).asin();
+
+        // these are spherical coordinates
+        let new_yaw = current_yaw + yaw;
+        let new_pitch = (current_pitch + pitch).clamp(-1.5, 1.5);
+
+        let pitch_cos = new_pitch.cos();
+        let pitch_sin = new_pitch.sin();
+
+        // x = r * cos(a) * cos(b)
+        // y = r * sin(a)
+        // z = r * cos(a) * sin (b)
+        let new_relative_pos = Vector3::new(
+            radius * pitch_cos * new_yaw.cos(),
+            radius * pitch_sin,
+            radius * pitch_cos * new_yaw.sin(),
+        );
+
+        self.eye = self.center + new_relative_pos;
+
+        self.update_basis();
     }
 
-    // Cast FOV rays
-    let num_rays = 5;
-    for i in 0..num_rays {
-        let current_ray = i as f32 / num_rays as f32;
-        let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
-        cast_ray(framebuffer, maze, player, block_size, a);
+    pub fn basis_change(&self, p: &Vector3) -> Vector3 {
+        Vector3::new(
+            p.x * self.right.x + p.y * self.up.x - p.z * self.forward.x,
+            p.x * self.right.y + p.y * self.up.y - p.z * self.forward.y,
+            p.x * self.right.z + p.y * self.up.z - p.z * self.forward.z,
+        )
     }
-}
+}pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera) {
+    let width = framebuffer.width as f32;
+    let height = framebuffer.height as f32;
+    let aspect_ratio = width / height;
+    let fov = PI / 3.0;
+    let perspective_scale = (fov * 0.5).tan();
 
-pub fn render_world(framebuffer: &mut Framebuffer, _player: &Player) {
-    framebuffer.set_current_color(Color::BLUE);
-
-    // Draw sky
-    for y in 0..framebuffer.height / 2 {
+    for y in 0..framebuffer.height {
         for x in 0..framebuffer.width {
+            let screen_x = (2.0 * x as f32) / width - 1.0;
+            let screen_y = -(2.0 * y as f32) / height + 1.0;
+
+            let screen_x = screen_x * aspect_ratio * perspective_scale;
+            let screen_y = screen_y * perspective_scale;
+
+            let ray_direction = Vector3::new(screen_x, screen_y, -1.0).normalized();
+
+            let rotated_direction = camera.basis_change(&ray_direction);
+
+            let pixel_color = cast_ray(&camera.eye, &rotated_direction, objects);
+
+            framebuffer.set_current_color(pixel_color);
             framebuffer.set_pixel(x, y);
         }
     }
-
-    framebuffer.set_current_color(Color::DARKGREEN);
-
-    // Draw ground
-    for y in framebuffer.height / 2..framebuffer.height {
-        for x in 0..framebuffer.width {
-            framebuffer.set_pixel(x, y);
-        }
-    }
-}
-
-fn main() {
+}fn main() {
     let window_width = 1300;
     let window_height = 900;
-    let block_size = 100;
-
+ 
     let (mut window, raylib_thread) = raylib::init()
         .size(window_width, window_height)
-        .title("Raycaster Example")
+        .title("Raytracer Example")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
-    let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32, Color::BLACK);
 
-    framebuffer.set_background_color(Color::new(50, 50, 100, 255));
+    let mut framebuffer = Framebuffer::new(window_width  as u32, window_height as u32);
 
-    // Load the maze once before the loop
-    let maze = load_maze("maze.txt");
-
-    // Create player instance starting at a reasonable position
-    let mut player = Player {
-        pos: Vector2::new(150.0, 150.0),
-        a: 0.0,
-        fov: std::f32::consts::PI / 3.0, // 60 degrees field of view
+    let rubber = Material {
+        diffuse: Color::new(80, 0, 0, 255),
     };
 
-    let mut mode = "2D";
+    let ivory = Material {
+        diffuse: Color::new(100, 100, 80, 255),
+    };
+
+    let objects = [
+        Sphere {
+            center: Vector3::new(1.0, 0.0, -4.0),
+            radius: 1.0,
+            material: ivory,
+        },
+        Sphere {
+            center: Vector3::new(2.0, 0.0, -5.0),
+            radius: 1.0,
+            material: rubber,
+        },
+        Sphere {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+            material: rubber,
+        },
+    ];
+
+    let mut camera = Camera::new(
+        Vector3::new(0.0, 0.0, 10.0),  // eye
+        Vector3::new(0.0, 0.0, 0.0),  // center
+        Vector3::new(0.0, 1.0, 0.0),  // up
+    );
+
+    let rotation_speed = PI / 100.0;
 
     while !window.window_should_close() {
-        // 1. Process player movement
-        process_events(&window, &mut player);
-
-        // 2. clear framebuffer
         framebuffer.clear();
 
-        // Check for mode switch (M key)
-        if window.is_key_down(KeyboardKey::KEY_M) {
-            mode = if mode == "2D" { "3D" } else { "2D" };
-            // Add a small delay to prevent multiple switches
-            thread::sleep(Duration::from_millis(200));
+        // camera controls
+        if window.is_key_down(KeyboardKey::KEY_LEFT) {
+            camera.orbit(rotation_speed, 0.0);
+        }
+        if window.is_key_down(KeyboardKey::KEY_RIGHT) {
+            camera.orbit(-rotation_speed, 0.0);
+        }
+        if window.is_key_down(KeyboardKey::KEY_UP) {
+            camera.orbit(0.0, -rotation_speed);
+        }
+        if window.is_key_down(KeyboardKey::KEY_DOWN) {
+            camera.orbit(0.0, rotation_speed);
         }
 
-        // 3. Render based on mode
-        if mode == "2D" {
-            render_maze(&mut framebuffer, &maze, block_size, &player);
-        } else {
-            render_world(&mut framebuffer, &player);
-        }
+        render(&mut framebuffer, &objects, &camera);
 
-        // 4. swap buffers
-        framebuffer.swap_buffer(&mut window, &raylib_thread);
-
-        thread::sleep(Duration::from_millis(16));
-    }
-}
-pub fn process_events(window: &RaylibHandle, player: &mut Player) {
-    const MOVE_SPEED: f32 = 10.0;
-    const ROTATION_SPEED: f32 = std::f32::consts::PI / 10.0;
-
-    if window.is_key_down(KeyboardKey::KEY_LEFT) {
-        player.a -= ROTATION_SPEED;
-    }
-    if window.is_key_down(KeyboardKey::KEY_RIGHT) {
-        player.a += ROTATION_SPEED;
-    }
-    if window.is_key_down(KeyboardKey::KEY_UP) {
-        player.pos.x += MOVE_SPEED * player.a.cos();
-        player.pos.y += MOVE_SPEED * player.a.sin();
-    }
-    if window.is_key_down(KeyboardKey::KEY_DOWN) {
-        player.pos.x -= MOVE_SPEED * player.a.cos();
-        player.pos.y -= MOVE_SPEED * player.a.sin();
+        framebuffer.swap_buffers(&mut window, &raylib_thread);
     }
 }
