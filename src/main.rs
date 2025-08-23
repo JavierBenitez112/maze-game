@@ -54,7 +54,7 @@ pub fn render_maze(framebuffer: &mut Framebuffer, maze: &Maze, block_size: usize
     }
 
     // Cast FOV rays
-    let num_rays = 5;
+    let num_rays = 100;
     for i in 0..num_rays {
         let current_ray = i as f32 / num_rays as f32;
         let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);

@@ -50,32 +50,61 @@ pub fn cast_ray(
 pub fn render3d(framebuffer: &mut Framebuffer, player: &Player) {
     let maze = load_maze("./maze.txt");
     let block_size = 100;
-    let num_rays = framebuffer.width;
 
-    let _hw = framebuffer.width as f32 / 2.0; // precalculated half width
-    let hh = framebuffer.height as f32 / 2.0; // precalculated half height
+    let num_rays = framebuffer.width ; 
+
+    let _hw = framebuffer.width as f32 / 2.0;
+    let hh = framebuffer.height as f32 / 2.0;
+
+    // Constantes para el renderizado
+    let distance_to_projection_plane = 100.0;
+    let max_distance = 1000.0; // Para normalizar el sombreado
 
     for i in 0..num_rays {
-        let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
+        let current_ray = i as f32 / num_rays as f32;
         let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
         let intersect = cast_ray(framebuffer, &maze, &player, a, block_size, false);
 
-        // Calculate the height of the stake
-        let distance_to_wall = intersect.distance; // how far is this wall from the player
-        let distance_to_projection_plane = 277.0; // how far is the "player" from the "camera"
+        let distance_to_wall = intersect.distance;
 
-        // Calculate shading based on distance
-        let shade = ((255.0 / distance_to_wall).min(255.0)) as u8;
-        framebuffer.set_current_color(Color::new(shade, shade, shade, 255));
+        // Calcula la intensidad basada en la distancia (1.0 cerca, 0.0 lejos)
+        let intensity = 1.0 - (distance_to_wall / max_distance).min(1.0);
 
-        // Calculate stake height with distance compensation
+        // Selecciona el color basado en el tipo de pared y la distancia
+        let color = match intersect.impact {
+            '#' => {
+                // Paredes normales en tonos rojos
+                let r = (255.0 * intensity) as u8;
+                let g = (100.0 * intensity) as u8;
+                let b = (100.0 * intensity) as u8;
+                Color::new(r, g, b, 255)
+            }
+            'X' => {
+                // Paredes especiales en tonos azules
+                let r = (100.0 * intensity) as u8;
+                let g = (100.0 * intensity) as u8;
+                let b = (255.0 * intensity) as u8;
+                Color::new(r, g, b, 255)
+            }
+            _ => {
+                // Otras paredes en tonos verdes
+                let r = (100.0 * intensity) as u8;
+                let g = (255.0 * intensity) as u8;
+                let b = (100.0 * intensity) as u8;
+                Color::new(r, g, b, 255)
+            }
+        };
+
+        framebuffer.set_current_color(color);
+
+        // Calcula la altura del stake con compensación de distancia
         let stake_height = (hh / distance_to_wall) * distance_to_projection_plane;
 
-        // Calculate the position to draw the stake, clamping to screen bounds
+        // Posiciones del stake con límites de pantalla
         let stake_top = ((hh - (stake_height / 2.0)) as usize).max(0);
         let stake_bottom = ((hh + (stake_height / 2.0)) as usize).min(framebuffer.height as usize);
 
-        // Draw the stake directly in the framebuffer with shading
+        // Dibuja el stake con el color calculado
         for y in stake_top..stake_bottom {
             framebuffer.set_pixel(i as u32, y as u32);
         }
