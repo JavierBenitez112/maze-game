@@ -7,12 +7,16 @@ mod framebuffer;
 mod line;
 mod maze;
 mod player;
+mod textures;
+mod sprites;
 
 use caster::{cast_ray, render3d};
 use framebuffer::Framebuffer;
 use line::line;
 use maze::{Maze, load_maze};
 use player::Player;
+use textures::TextureManager;
+use sprites::{Sprite, draw_sprite, update_sprite_distances};
 use raylib::prelude::*;
 use std::thread;
 use std::time::Duration;
@@ -31,7 +35,7 @@ fn draw_cell(framebuffer: &mut Framebuffer, xo: usize, yo: usize, block_size: us
     }
 }
 
-pub fn render_maze(framebuffer: &mut Framebuffer, maze: &Maze, block_size: usize, player: &Player) {
+pub fn render_maze(framebuffer: &mut Framebuffer, maze: &Maze, block_size: usize, player: &Player, _texture_manager: &TextureManager) {
     // Render 2D view
     for (row_index, row) in maze.iter().enumerate() {
         for (col_index, &cell) in row.iter().enumerate() {
@@ -89,13 +93,16 @@ fn main() {
 
     let (mut window, raylib_thread) = raylib::init()
         .size(window_width, window_height)
-        .title("Raycaster Example")
+        .title("Maze Game")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32, Color::BLACK);
 
     framebuffer.set_background_color(Color::new(50, 50, 100, 255));
+
+    // Initialize texture manager
+    let texture_manager = TextureManager::new(&mut window, &raylib_thread);
 
     // Load the maze once before the loop
     let maze = load_maze("maze.txt");
@@ -104,8 +111,16 @@ fn main() {
     let mut player = Player {
         pos: Vector2::new(150.0, 150.0),
         a: 0.0,
-        fov: std::f32::consts::PI / 3.0, // 60 degrees field of view
+        fov: std::f32::consts::PI * 2.0 / 3.0, // 60 degrees field of view
     };
+
+    // Crear algunos sprites de enemigos
+    let mut sprites = vec![
+        Sprite::new(300.0, 150.0, 'e'),
+        Sprite::new(500.0, 400.0, 'e'),
+        Sprite::new(700.0, 300.0, 'e'),
+        Sprite::new(400.0, 600.0, 'e'),
+    ];
 
     let mut mode = "2D";
 
@@ -125,10 +140,16 @@ fn main() {
 
         // 3. Render based on mode
         if mode == "2D" {
-            render_maze(&mut framebuffer, &maze, block_size, &player);
+            render_maze(&mut framebuffer, &maze, block_size, &player, &texture_manager);
         } else {
             render_world(&mut framebuffer, &player);
-            render3d(&mut framebuffer, &player);
+            let z_buffer = render3d(&mut framebuffer, &player, &texture_manager);
+            
+            // Actualizar distancias de sprites y dibujarlos
+            update_sprite_distances(&mut sprites, &player);
+            for sprite in &sprites {
+                draw_sprite(&mut framebuffer, &player, sprite, &texture_manager, &mut z_buffer.clone());
+            }
         }
 
         // 4. swap buffers
