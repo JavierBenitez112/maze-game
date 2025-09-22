@@ -67,7 +67,7 @@ pub fn render_maze(framebuffer: &mut Framebuffer, maze: &Maze, block_size: usize
 }
 
 pub fn render_world(framebuffer: &mut Framebuffer, _player: &Player) {
-    framebuffer.set_current_color(Color::BLUE);
+    framebuffer.set_current_color(Color::GRAY);
 
     // Draw sky
     for y in 0..framebuffer.height / 2 {
@@ -76,7 +76,7 @@ pub fn render_world(framebuffer: &mut Framebuffer, _player: &Player) {
         }
     }
 
-    framebuffer.set_current_color(Color::DARKGREEN);
+    framebuffer.set_current_color(Color::GRAY);
 
     // Draw ground
     for y in framebuffer.height / 2..framebuffer.height {
@@ -122,7 +122,7 @@ fn main() {
         Sprite::new(400.0, 600.0, 'e'),
     ];
 
-    let mut mode = "2D";
+    let mut mode = "3D";
 
     while !window.window_should_close() {
         // 1. Process player movement
