@@ -91,28 +91,41 @@ pub fn draw_sprite(
 
                 let color = texture_manager.get_pixel_color(sprite.texture_char, tx, ty);
 
-                // Función para verificar si un color es transparente
-                let is_transparent = |c: Color| -> bool {
-                    // Verificar canal alpha si está disponible
-                    if c.a < ALPHA_THRESHOLD {
-                        return true;
-                    }
+                 // Función para verificar si un color es transparente
+                 let is_transparent = |c: Color| -> bool {
+                     // Verificar canal alpha si está disponible
+                     if c.a < ALPHA_THRESHOLD {
+                         return true;
+                     }
                     
-                    // Para texturas sin transparencia real, crear un efecto de "máscara"
-                    // Considerar transparentes los píxeles muy oscuros o muy claros
-                    let brightness = (c.r as u32 + c.g as u32 + c.b as u32) / 3;
-                    
-                    // Píxeles muy oscuros (negro) o muy claros (blanco) se consideran transparentes
-                    brightness < 30 || brightness > 240
-                };
+                     // Solo considerar transparentes:
+                     // 1. Negro puro (0,0,0)
+                     // 2. Magenta puro (255,0,255) - color de transparencia estándar
+                     // 3. Píxeles con alpha muy bajo
+                     // 4. Solo negros extremos (brillo < 2)
+                     (c.r == 0 && c.g == 0 && c.b == 0) || 
+                     (c.r == 255 && c.g == 0 && c.b == 255) // Solo negro extremo
+                 };
 
                 // Saltar píxeles transparentes
                 if !is_transparent(color) {
                     // Aplicar intensidad basada en la distancia (más suave y controlada)
-                    let intensity = (1.0 - (distance / 600.0).min(0.7)).max(0.3);
-                    let r = (color.r as f32 * intensity) as u8;
-                    let g = (color.g as f32 * intensity) as u8;
-                    let b = (color.b as f32 * intensity) as u8;
+                    // Reducir aún más el efecto de oscurecimiento para preservar negros
+                    let intensity = (1.0 - (distance / 1000.0).min(0.4)).max(0.6);
+                    
+                    // Para colores muy oscuros, aplicar menos oscurecimiento
+                    let brightness = (color.r as u32 + color.g as u32 + color.b as u32) / 3;
+                    let final_intensity = if brightness < 5 {
+                        // Para colores oscuros, usar intensidad más alta
+                        intensity.max(0.8)
+                    } else {
+                        intensity
+                    };
+                    
+                    // Aplicar la intensidad
+                    let r = (color.r as f32 * final_intensity) as u8;
+                    let g = (color.g as f32 * final_intensity) as u8;
+                    let b = (color.b as f32 * final_intensity) as u8;
                     let final_color = Color::new(r, g, b, 255);
                     
                     framebuffer.set_current_color(final_color);

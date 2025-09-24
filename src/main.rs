@@ -126,7 +126,7 @@ fn main() {
 
     while !window.window_should_close() {
         // 1. Process player movement
-        process_events(&window, &mut player);
+        process_events(&window, &mut player, &maze);
 
         // 2. clear framebuffer
         framebuffer.clear();
@@ -158,9 +158,44 @@ fn main() {
         thread::sleep(Duration::from_millis(16));
     }
 }
-pub fn process_events(window: &RaylibHandle, player: &mut Player) {
+// Función para verificar colisiones con las paredes
+fn check_collision(maze: &Maze, new_x: f32, new_y: f32, block_size: usize) -> bool {
+    let grid_x = (new_x / block_size as f32) as usize;
+    let grid_y = (new_y / block_size as f32) as usize;
+    
+    // Verificar límites del laberinto
+    if grid_x >= maze[0].len() || grid_y >= maze.len() {
+        return true; // Colisión con límites
+    }
+    
+    // Verificar si hay una pared en la nueva posición
+    maze[grid_y][grid_x] != ' '
+}
+
+// Función para verificar colisiones con margen de seguridad
+fn check_collision_with_margin(maze: &Maze, x: f32, y: f32, block_size: usize, margin: f32) -> bool {
+    // Verificar múltiples puntos alrededor del jugador para evitar que se pegue a las paredes
+    let points = vec![
+        (x - margin, y - margin), // Esquina superior izquierda
+        (x + margin, y - margin), // Esquina superior derecha
+        (x - margin, y + margin), // Esquina inferior izquierda
+        (x + margin, y + margin), // Esquina inferior derecha
+    ];
+    
+    for (px, py) in points {
+        if check_collision(maze, px, py, block_size) {
+            return true;
+        }
+    }
+    
+    false
+}
+
+pub fn process_events(window: &RaylibHandle, player: &mut Player, maze: &Maze) {
     const MOVE_SPEED: f32 = 10.0;
     const ROTATION_SPEED: f32 = std::f32::consts::PI / 10.0;
+    const BLOCK_SIZE: usize = 100;
+    const COLLISION_MARGIN: f32 = 15.0; // Margen de seguridad para evitar pegarse a las paredes
 
     if window.is_key_down(KeyboardKey::KEY_LEFT) {
         player.a -= ROTATION_SPEED;
@@ -168,12 +203,32 @@ pub fn process_events(window: &RaylibHandle, player: &mut Player) {
     if window.is_key_down(KeyboardKey::KEY_RIGHT) {
         player.a += ROTATION_SPEED;
     }
+    
+    // Movimiento hacia adelante
     if window.is_key_down(KeyboardKey::KEY_UP) {
-        player.pos.x += MOVE_SPEED * player.a.cos();
-        player.pos.y += MOVE_SPEED * player.a.sin();
+        let new_x = player.pos.x + MOVE_SPEED * player.a.cos();
+        let new_y = player.pos.y + MOVE_SPEED * player.a.sin();
+        
+        // Verificar colisiones con margen de seguridad
+        if !check_collision_with_margin(maze, new_x, player.pos.y, BLOCK_SIZE, COLLISION_MARGIN) {
+            player.pos.x = new_x;
+        }
+        if !check_collision_with_margin(maze, player.pos.x, new_y, BLOCK_SIZE, COLLISION_MARGIN) {
+            player.pos.y = new_y;
+        }
     }
+    
+    // Movimiento hacia atrás
     if window.is_key_down(KeyboardKey::KEY_DOWN) {
-        player.pos.x -= MOVE_SPEED * player.a.cos();
-        player.pos.y -= MOVE_SPEED * player.a.sin();
+        let new_x = player.pos.x - MOVE_SPEED * player.a.cos();
+        let new_y = player.pos.y - MOVE_SPEED * player.a.sin();
+        
+        // Verificar colisiones con margen de seguridad
+        if !check_collision_with_margin(maze, new_x, player.pos.y, BLOCK_SIZE, COLLISION_MARGIN) {
+            player.pos.x = new_x;
+        }
+        if !check_collision_with_margin(maze, player.pos.x, new_y, BLOCK_SIZE, COLLISION_MARGIN) {
+            player.pos.y = new_y;
+        }
     }
 }

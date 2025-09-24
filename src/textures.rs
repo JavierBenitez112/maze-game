@@ -52,12 +52,12 @@ impl TextureManager {
                     y
                 );
                 
-                // Si el formato de imagen no tiene canal alpha, asumir opaco
-                let alpha = if image.format == raylib::ffi::PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 as i32 {
-                    raylib_color.a
-                } else {
-                    255 // Completamente opaco si no hay canal alpha
-                };
+                 // Manejar diferentes formatos de imagen
+                 let alpha = match image.format {
+                     4 => raylib_color.a, // PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+                     3 => 255, // PIXELFORMAT_UNCOMPRESSED_R8G8B8 (sin alpha)
+                     _ => 255, // Por defecto, completamente opaco
+                 };
                 
                 Color::new(raylib_color.r, raylib_color.g, raylib_color.b, alpha)
             }
