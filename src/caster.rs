@@ -24,21 +24,35 @@ pub fn cast_ray(
     draw_line: bool,
 ) -> Intersect {
     let mut d = 0.0;
-    let step_size = 1.0; // Más preciso que 10.0
+    let step_size = 2.0; // Balance entre precisión y rendimiento
 
     framebuffer.set_current_color(Color::WHITESMOKE);
+    
+    // Precalcular valores trigonométricos
+    let cos_a = a.cos();
+    let sin_a = a.sin();
 
     loop {
-        let cos = d * a.cos();
-        let sin = d * a.sin();
-        let x = player.pos.x + cos;
-        let y = player.pos.y + sin;
+        let x = player.pos.x + d * cos_a;
+        let y = player.pos.y + d * sin_a;
         
         let grid_x = x as usize;
         let grid_y = y as usize;
 
         let i = grid_x / block_size;
         let j = grid_y / block_size;
+        
+        // Verificar límites antes de acceder
+        if j >= maze.len() || i >= maze[0].len() {
+            // Retornar un intersect con distancia máxima si se sale de los límites
+            return Intersect {
+                distance: d,
+                impact: ' ',
+                hit_x: x,
+                hit_y: y,
+                wall_side: 'v',
+            };
+        }
 
         if maze[j][i] != ' ' {
             // Determinar qué lado de la pared fue golpeado de manera más precisa
@@ -77,8 +91,7 @@ pub fn cast_ray(
     }
 }
 
-pub fn render3d(framebuffer: &mut Framebuffer, player: &Player, texture_manager: &TextureManager) -> Vec<f32> {
-    let maze = load_maze("./maze.txt");
+pub fn render3d(framebuffer: &mut Framebuffer, player: &Player, texture_manager: &TextureManager, maze: &Vec<Vec<char>>) -> Vec<f32> {
     let block_size = 100;
 
     let num_rays = framebuffer.width ; 
