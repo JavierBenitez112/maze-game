@@ -24,7 +24,7 @@ pub fn cast_ray(
     draw_line: bool,
 ) -> Intersect {
     let mut d = 0.0;
-    let step_size = 2.0; // Balance entre precisión y rendimiento
+    let step_size = 3.0; // Balance entre precisión y rendimiento (optimizado)
 
     framebuffer.set_current_color(Color::WHITESMOKE);
     
@@ -54,7 +54,10 @@ pub fn cast_ray(
             };
         }
 
-        if maze[j][i] != ' ' {
+        let cell = maze[j][i];
+        
+        // Los triggers ('t', 's', 'c') son transparentes y atravesables, tratarlos como espacios vacíos
+        if cell != ' ' && cell != 't' && cell != 's' && cell != 'c' {
             // Determinar qué lado de la pared fue golpeado de manera más precisa
             let cell_x = (i * block_size) as f32;
             let cell_y = (j * block_size) as f32;
@@ -76,7 +79,7 @@ pub fn cast_ray(
 
             return Intersect {
                 distance: d,
-                impact: maze[j][i],
+                impact: cell,
                 hit_x: x,
                 hit_y: y,
                 wall_side,
@@ -94,7 +97,9 @@ pub fn cast_ray(
 pub fn render3d(framebuffer: &mut Framebuffer, player: &Player, texture_manager: &TextureManager, maze: &Vec<Vec<char>>) -> Vec<f32> {
     let block_size = 100;
 
-    let num_rays = framebuffer.width ; 
+    // Optimización: reducir rayos a la mitad para mejor rendimiento (cada 2 píxeles)
+    let ray_scale = 2usize;
+    let num_rays = framebuffer.width as usize / ray_scale; 
 
     let _hw = framebuffer.width as f32 / 2.0;
     let hh = framebuffer.height as f32 / 2.0;
@@ -111,6 +116,12 @@ pub fn render3d(framebuffer: &mut Framebuffer, player: &Player, texture_manager:
         let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
         let intersect = cast_ray(framebuffer, &maze, &player, a, block_size, false);
 
+        // Los triggers ('t', 's', 'c') son transparentes, no renderizar nada si el rayo golpea un trigger
+        // o si no hay pared (espacio vacío o fuera de límites)
+        if intersect.impact == ' ' || intersect.impact == 't' || intersect.impact == 's' || intersect.impact == 'c' {
+            continue;
+        }
+
         let distance_to_wall = intersect.distance;
 
         // Calcula la intensidad basada en la distancia (1.0 cerca, 0.0 lejos)
@@ -122,6 +133,9 @@ pub fn render3d(framebuffer: &mut Framebuffer, player: &Player, texture_manager:
         // Posiciones del stake con límites de pantalla
         let stake_top = ((hh - (stake_height / 2.0)) as usize).max(0);
         let stake_bottom = ((hh + (stake_height / 2.0)) as usize).min(framebuffer.height as usize);
+        
+        // Calcular posición X en pantalla (escalada)
+        let screen_x = i * ray_scale;
 
         // Calcular coordenada horizontal de textura (tx)
         let texture_x = if let Some((tex_width, _)) = texture_manager.get_texture_dimensions(intersect.impact) {
@@ -174,11 +188,18 @@ pub fn render3d(framebuffer: &mut Framebuffer, player: &Player, texture_manager:
             let final_color = Color::new(r, g, b, 255);
             
             framebuffer.set_current_color(final_color);
-            framebuffer.set_pixel(i as u32, y as u32);
+            // Dibujar en múltiples columnas para compensar la reducción de rayos
+            for offset in 0..ray_scale {
+                let x_pos = (screen_x + offset).min(framebuffer.width as usize - 1);
+                framebuffer.set_pixel(x_pos as u32, y as u32);
+            }
         }
         
-        // Actualizar z-buffer con la distancia de la pared
-        z_buffer[i as usize] = distance_to_wall;
+        // Actualizar z-buffer para todas las columnas de este rayo
+        for offset in 0..ray_scale {
+            let x_pos = (screen_x + offset).min(z_buffer.len() - 1);
+            z_buffer[x_pos] = distance_to_wall;
+        }
     }
     
     z_buffer

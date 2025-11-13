@@ -21,6 +21,9 @@ impl TextureManager {
             ('g', "assets/wall5.png"),
             ('#', "assets/wall3.png"), // default/fallback
             ('e', "assets/SpookyBG.png"), // sprite de enemigo
+            ('t', "assets/SpookyBG.png"), // trigger sprite SpookyBG
+            ('s', "assets/SCARE_01.png"), // trigger sprite SCARE_01
+            ('c', "assets/SCARE_05.png"), // trigger sprite SCARE_05
         ];
 
         for (ch, path) in texture_files {
