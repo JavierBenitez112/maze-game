@@ -15,10 +15,10 @@ mod screens;
 use caster::{cast_ray, render3d};
 use framebuffer::Framebuffer;
 use line::line;
-use maze::{Maze, load_maze, find_player_start, check_goal_collision};
+use maze::{Maze, load_maze, find_player_start, check_goal_collision, check_collision_with_margin, find_activated_triggers};
 use player::Player;
 use textures::TextureManager;
-use sprites::{Sprite, draw_sprite, update_sprite_distances};
+use sprites::{Sprite, draw_sprite, update_sprite_distances, update_sprite_ai};
 use visual_effects::{VisualEffects, apply_flashlight_effect};
 use screens::{ScreenManager, ScreenType, render_screen, handle_menu_input, handle_victory_input, MenuAction, VictoryAction};
 use raylib::prelude::*;
@@ -85,8 +85,9 @@ fn draw_victory_text(d: &mut RaylibDrawHandle, current_level: usize) {
     let center_x = screen_width / 2;
     let center_y = screen_height / 2;
 
-    // Mensaje de victoria
-    d.draw_text("GANASTE", center_x - 150, center_y - 100, 80, Color::GREEN);
+    // Mensaje de victoria: "Room" + número de nivel
+    let room_text = format!("Room {}", current_level);
+    d.draw_text(&room_text, center_x - 100, center_y - 100, 80, Color::GREEN);
 
     if current_level < 3 {
         d.draw_text("Enter: Siguiente Nivel", center_x - 150, center_y + 50, 30, Color::YELLOW);
@@ -98,7 +99,8 @@ fn draw_victory_text(d: &mut RaylibDrawHandle, current_level: usize) {
 }
 
 fn draw_cell(framebuffer: &mut Framebuffer, xo: usize, yo: usize, block_size: usize, cell: char) {
-    if cell == ' ' {
+    // Los triggers ('t', 's', 'c') son transparentes y no se dibujan
+    if cell == ' ' || cell == 't' || cell == 's' || cell == 'c' {
         return;
     }
 
@@ -152,7 +154,7 @@ pub fn render_world(framebuffer: &mut Framebuffer, _player: &Player) {
     framebuffer.draw_rectangle(0, framebuffer.height / 2, framebuffer.width, framebuffer.height / 2);
 }
 
-pub fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, block_size: usize) {
+pub fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, sprites: &[sprites::Sprite], block_size: usize) {
     // Tamaño del minimapa
     let minimap_size = 280u32;
     let minimap_scale = 3u32; // Escala: cada celda del laberinto será de 3x3 píxeles en el minimapa
@@ -185,7 +187,8 @@ pub fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Playe
                 continue;
             }
             
-            if cell != ' ' {
+            // Los triggers ('t', 's', 'c') son transparentes y no se dibujan en el minimapa
+            if cell != ' ' && cell != 't' && cell != 's' && cell != 'c' {
                 // Dibujar muro en el minimapa
                 let minimap_cell_x = minimap_x + ((grid_x - start_grid_x) * minimap_scale as i32) as u32;
                 let minimap_cell_y = minimap_y + ((grid_y - start_grid_y) * minimap_scale as i32) as u32;
@@ -214,6 +217,94 @@ pub fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Playe
             let py = (player_minimap_y as i32 + dy).max(0) as u32;
             if px < framebuffer.width && py < framebuffer.height {
                 framebuffer.set_pixel(px, py);
+            }
+        }
+    }
+    
+    // Dibujar sprites y su FOV en el minimapa
+    for sprite in sprites {
+        let sprite_grid_x = (sprite.pos.x / block_size as f32) as i32;
+        let sprite_grid_y = (sprite.pos.y / block_size as f32) as i32;
+        
+        // Solo dibujar si el sprite está en el área visible del minimapa
+        if sprite_grid_x >= start_grid_x && sprite_grid_x < end_grid_x &&
+           sprite_grid_y >= start_grid_y && sprite_grid_y < end_grid_y {
+            
+            let sprite_minimap_x = minimap_x + ((sprite_grid_x - start_grid_x) * minimap_scale as i32) as u32;
+            let sprite_minimap_y = minimap_y + ((sprite_grid_y - start_grid_y) * minimap_scale as i32) as u32;
+            
+            // Dibujar FOV del sprite (cono de visión) - Optimizado: menos líneas
+            if sprite.player_detected {
+                framebuffer.set_current_color(Color::new(255, 100, 100, 150)); // Rojo claro cuando detecta
+            } else {
+                framebuffer.set_current_color(Color::new(100, 100, 255, 100)); // Azul claro cuando no detecta
+            }
+            
+            // Dibujar líneas del FOV (cono) - Optimizado: reducir a 3 líneas
+            let fov_half = sprite.fov / 2.0;
+            let fov_range = 15.0; // Rango del FOV en el minimapa
+            let num_lines = 3; // Reducido de 5 a 3 para mejor rendimiento
+            
+            for i in 0..=num_lines {
+                let angle_offset = -fov_half + (fov_half * 2.0 * i as f32 / num_lines as f32);
+                let angle = sprite.facing_angle + angle_offset;
+                let end_x = sprite_minimap_x as f32 + angle.cos() * fov_range;
+                let end_y = sprite_minimap_y as f32 + angle.sin() * fov_range;
+                
+                // Dibujar línea usando bresenham o píxeles simples - Optimizado: menos pasos
+                let steps = (fov_range as i32 / 2).max(3); // Reducido a la mitad
+                for step in 0..=steps {
+                    let t = step as f32 / steps as f32;
+                    let x = sprite_minimap_x as f32 + (end_x - sprite_minimap_x as f32) * t;
+                    let y = sprite_minimap_y as f32 + (end_y - sprite_minimap_y as f32) * t;
+                    
+                    let px = x as i32;
+                    let py = y as i32;
+                    
+                    if px >= 0 && px < framebuffer.width as i32 &&
+                       py >= 0 && py < framebuffer.height as i32 {
+                        framebuffer.set_pixel(px as u32, py as u32);
+                    }
+                }
+            }
+            
+            // Dibujar el sprite en el minimapa
+            if sprite.player_detected {
+                framebuffer.set_current_color(Color::RED); // Rojo cuando detecta al jugador
+            } else {
+                framebuffer.set_current_color(Color::BLUE); // Azul cuando no detecta
+            }
+            
+            // Dibujar un pequeño cuadrado para el sprite
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let px = (sprite_minimap_x as i32 + dx).max(0) as u32;
+                    let py = (sprite_minimap_y as i32 + dy).max(0) as u32;
+                    if px < framebuffer.width && py < framebuffer.height {
+                        framebuffer.set_pixel(px, py);
+                    }
+                }
+            }
+            
+            // Dibujar dirección del sprite (línea pequeña)
+            framebuffer.set_current_color(Color::YELLOW);
+            let dir_length = 4.0;
+            let dir_end_x = sprite_minimap_x as f32 + sprite.facing_angle.cos() * dir_length;
+            let dir_end_y = sprite_minimap_y as f32 + sprite.facing_angle.sin() * dir_length;
+            
+            let dir_steps = 4;
+            for step in 0..=dir_steps {
+                let t = step as f32 / dir_steps as f32;
+                let x = sprite_minimap_x as f32 + (dir_end_x - sprite_minimap_x as f32) * t;
+                let y = sprite_minimap_y as f32 + (dir_end_y - sprite_minimap_y as f32) * t;
+                
+                let px = x as i32;
+                let py = y as i32;
+                
+                if px >= 0 && px < framebuffer.width as i32 &&
+                   py >= 0 && py < framebuffer.height as i32 {
+                    framebuffer.set_pixel(px as u32, py as u32);
+                }
             }
         }
     }
@@ -272,6 +363,24 @@ fn main() {
         eprintln!("Sugerencia: Considera convertir el archivo a formato WAV u OGG para mejor compatibilidad.");
     }
 
+    // Cargar sonidos de triggers
+    let mut trigger_sounds: Vec<Option<raylib::ffi::Sound>> = vec![None, None, None];
+    let sound_paths = vec!["assets/STAB_01.mp3", "assets/STAB_02.mp3", "assets/STAB_03.mp3"];
+    
+    for (i, path) in sound_paths.iter().enumerate() {
+        unsafe {
+            let c_path = std::ffi::CString::new(*path)
+                .expect(&format!("Error al crear CString para {}", path));
+            let sound = raylib::ffi::LoadSound(c_path.as_ptr());
+            if sound.frameCount > 0 {
+                trigger_sounds[i] = Some(sound);
+                println!("Sonido {} cargado correctamente", path);
+            } else {
+                eprintln!("Advertencia: No se pudo cargar el sonido {}", path);
+            }
+        }
+    }
+
     // Game state
     let mut game_state = GameState::MainMenu;
     let mut current_level = 1;
@@ -284,10 +393,12 @@ fn main() {
         fov: std::f32::consts::PI * 2.0 / 3.0, // 60 degrees field of view
     };
 
-    // Crear un solo sprite usando SpookyBG.png
-    let mut sprites = vec![
-        Sprite::new(500.0, 400.0, 'e'), // 'e' está mapeado a SpookyBG.png
-    ];
+    // Inicializar sprites vacío - solo se crearán cuando se activen triggers
+    let mut sprites = vec![];
+
+    // Conjunto para rastrear triggers ya activados (evitar crear múltiples sprites del mismo trigger)
+    use std::collections::HashSet;
+    let mut activated_triggers: HashSet<(i32, i32)> = HashSet::new();
 
     // Inicializar efectos visuales
     let visual_effects = VisualEffects::new();
@@ -359,6 +470,12 @@ fn main() {
                                 player.a = 0.0;
                             }
                             
+                            // Resetear triggers activados al cambiar de nivel
+                            activated_triggers.clear();
+                            
+                            // Resetear sprites (vaciar lista)
+                            sprites = vec![];
+                            
                             screen_manager.set_current_level(level);
                             screen_manager.set_menu_state(screens::MenuState::MainMenu);
                             screen_manager.set_selected_option(0);
@@ -400,6 +517,12 @@ fn main() {
                                     player.pos = Vector2::new(x, y);
                                     player.a = 0.0;
                                 }
+                                
+                                // Resetear triggers activados al cambiar de nivel
+                                activated_triggers.clear();
+                                
+                                // Resetear sprites (vaciar lista)
+                                sprites = vec![];
                                 
                                 screen_manager.set_current_level(current_level);
                                 game_state = GameState::Playing;
@@ -467,6 +590,43 @@ fn main() {
                 // 1. Process player movement
                 process_events(&window, &mut player, &maze, mode == "3D" && mouse_rotation_enabled);
 
+                // 1.25. Verificar triggers activados y crear sprites temporales
+                let activated = find_activated_triggers(&maze, player.pos.x, player.pos.y, block_size);
+                for (trigger_x, trigger_y, trigger_char) in activated {
+                    // Convertir posición a coordenadas de grid para usar como clave única
+                    let grid_x = (trigger_x / block_size as f32) as i32;
+                    let grid_y = (trigger_y / block_size as f32) as i32;
+                    
+                    // Solo crear sprite si este trigger no ha sido activado antes
+                    if !activated_triggers.contains(&(grid_x, grid_y)) {
+                        // Colocar el sprite en la posición del trigger (centro del bloque)
+                        // El sprite aparecerá en ese bloque y será visible en el FOV de la cámara
+                        // Usar el carácter del trigger para determinar qué sprite crear:
+                        // 't' -> SpookyBG.png, 's' -> SCARE_01.png, 'c' -> SCARE_05.png
+                        sprites.push(Sprite::new(trigger_x, trigger_y, trigger_char));
+                        
+                        // Reproducir sonido correspondiente al trigger
+                        let sound_index = match trigger_char {
+                            't' => 0, // STAB_01.mp3
+                            's' => 1, // STAB_02.mp3
+                            'c' => 2, // STAB_03.mp3
+                            _ => 0,
+                        };
+                        
+                        if let Some(sound) = &trigger_sounds[sound_index] {
+                            unsafe {
+                                raylib::ffi::PlaySound(*sound);
+                            }
+                        }
+                        
+                        // Marcar este trigger como activado
+                        activated_triggers.insert((grid_x, grid_y));
+                    }
+                }
+
+                // 1.5. Update sprite AI (persecución del jugador)
+                update_sprite_ai(&mut sprites, &player, &maze, block_size);
+
                 // 2. clear framebuffer
                 framebuffer.clear();
 
@@ -495,7 +655,7 @@ fn main() {
                 }
                 
                 // Renderizar minimapa en ambos modos
-                render_minimap(&mut framebuffer, &maze, &player, block_size);
+                render_minimap(&mut framebuffer, &maze, &player, &sprites, block_size);
 
                 // 4. swap buffers y dibujar FPS
                 if let Ok(texture) = window.load_texture_from_image(&raylib_thread, &framebuffer.color_buffer) {
@@ -521,38 +681,6 @@ fn main() {
             thread::sleep(frame_duration - frame_elapsed);
         }
     }
-}
-// Función para verificar colisiones con las paredes
-fn check_collision(maze: &Maze, new_x: f32, new_y: f32, block_size: usize) -> bool {
-    let grid_x = (new_x / block_size as f32) as usize;
-    let grid_y = (new_y / block_size as f32) as usize;
-    
-    // Verificar límites del laberinto
-    if grid_x >= maze[0].len() || grid_y >= maze.len() {
-        return true; // Colisión con límites
-    }
-    
-    // Verificar si hay una pared en la nueva posición
-    maze[grid_y][grid_x] != ' '
-}
-
-// Función para verificar colisiones con margen de seguridad
-fn check_collision_with_margin(maze: &Maze, x: f32, y: f32, block_size: usize, margin: f32) -> bool {
-    // Verificar múltiples puntos alrededor del jugador para evitar que se pegue a las paredes
-    let points = vec![
-        (x - margin, y - margin), // Esquina superior izquierda
-        (x + margin, y - margin), // Esquina superior derecha
-        (x - margin, y + margin), // Esquina inferior izquierda
-        (x + margin, y + margin), // Esquina inferior derecha
-    ];
-    
-    for (px, py) in points {
-        if check_collision(maze, px, py, block_size) {
-            return true;
-        }
-    }
-    
-    false
 }
 
 pub fn process_events(window: &RaylibHandle, player: &mut Player, maze: &Maze, enable_mouse_rotation: bool) {
