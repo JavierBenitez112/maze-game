@@ -31,8 +31,8 @@ impl ScreenManager {
             window.load_texture_from_image(raylib_thread, img).ok()
         });
 
-        // Cargar imagen de victoria
-        let victory_image = Image::load_image("assets/pic0.png").ok();
+        // Cargar imagen de victoria (door.png)
+        let victory_image = Image::load_image("assets/door.png").ok();
         let victory_texture = victory_image.as_ref().and_then(|img| {
             window.load_texture_from_image(raylib_thread, img).ok()
         });
